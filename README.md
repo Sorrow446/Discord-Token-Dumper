@@ -12,4 +12,4 @@ Double click `run_x64.bat` or `run_x86.bat` or call via CLI.
 # Disclaimer
 - I will not be responsible for how you use Discord Token Dumper.    
 - Discord brand and name is the registered trademark of its respective owner.    
-- Discord Token Dumper has no partnership, sponsorship or endorsement with ZDvuk.
+- Discord Token Dumper has no partnership, sponsorship or endorsement with Discord.
