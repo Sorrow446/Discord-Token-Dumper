@@ -69,6 +69,7 @@ func getLastMod(paths []string) (string, error) {
 			continue
 		}
 		if modTime.After(lastMod) {
+			lastMod = modTime
 			lastModPath = path
 		}
 	}
