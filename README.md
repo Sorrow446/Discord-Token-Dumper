@@ -1,14 +1,31 @@
 # Discord-Token-Dumper
 Discord token dumper written in Go.
-![](https://i.imgur.com/etVUvgF.png)
+![](https://i.imgur.com/VYnpN87.png)
 [Windows binaries](https://github.com/Sorrow446/Discord-Token-Dumper/releases)
 
 # Usage
-**Windows desktop version only.**    
-Discord can be running during dumping. The most recent token will be dumped.
+**Windows desktop or Chrome version only.**    
+Discord/Chrome can be running during dumping. The most recent token(s) will be dumped.
 
-Double click `run_x64.bat` or `run_x86.bat` or call via CLI.
+Double click a batch file of your choice or call via CLI.    
+Dump desktop token only:   
+`dtd_x64.exe`
 
+Dump Chrome token only:   
+`dtd_x64.exe -s 2`
+
+Dump All tokens:   
+`dtd_x64.exe -s 3`
+
+```
+Usage: dtd_x64.exe [--source SOURCE]
+
+Options:
+  --source SOURCE, -s SOURCE
+                         Where to dump from. 1 = Desktop, 2 = Chrome, 3 = all (desktop first, then Chrome). [default: 1]
+  --help, -h             display this help and exit
+ ```
+ 
 # Disclaimer
 - I will not be responsible for how you use Discord Token Dumper.    
 - Discord brand and name is the registered trademark of its respective owner.    
