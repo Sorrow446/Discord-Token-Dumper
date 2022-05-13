@@ -4,7 +4,7 @@ Discord token dumper written in Go.
 [Windows binaries](https://github.com/Sorrow446/Discord-Token-Dumper/releases)
 
 # Usage
-**Windows desktop or Chrome version only.**    
+**Windows desktop or Chrome only.**    
 Discord/Chrome can be running during dumping. The most recent token(s) will be dumped.
 
 Double click a batch file of your choice (move next to binary first) or call via CLI.    
