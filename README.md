@@ -22,7 +22,7 @@ Usage: dtd_x64.exe [--source SOURCE]
 
 Options:
   --source SOURCE, -s SOURCE
-                         Where to dump from. 1 = Desktop, 2 = Chrome, 3 = all (desktop first, then Chrome). [default: 1]
+                         Where to dump from. 1 = Desktop, 2 = Chrome, 3 = All (desktop first, then Chrome). [default: 1]
   --help, -h             display this help and exit
  ```
  
