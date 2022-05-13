@@ -66,6 +66,7 @@ func getLastMod(paths []string) (string, error) {
 		modTime := stat.ModTime()
 		if i == 0 {
 			lastMod = modTime
+			lastModPath = path
 			continue
 		}
 		if modTime.After(lastMod) {
